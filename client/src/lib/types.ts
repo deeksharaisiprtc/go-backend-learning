@@ -7,5 +7,14 @@ export interface User {
   deleted_at: string | null;
 }
 
-export type CreateUserRequest = Pick<User, 'name' | 'email'>;
-export type UpdateUserRequest = Partial<Pick<User, 'name' | 'email'>>;
+export interface CreateUserRequest {
+  name: string;
+  email: string;
+  password: string;
+}
+
+export interface UpdateUserRequest {
+  name?: string;
+  email?: string;
+  password?: string;
+}

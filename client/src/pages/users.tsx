@@ -1,5 +1,7 @@
 import React, { useState } from "react";
-import { useUserStore } from "@/lib/store";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { userAPI } from "@/lib/api";
+import { CreateUserRequest, UpdateUserRequest } from "@/lib/types";
 import { format } from "date-fns";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -20,7 +22,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -46,37 +47,98 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { Plus, Pencil, Trash2, RefreshCcw, Search, UserX } from "lucide-react";
+import { Plus, Pencil, Trash2, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 // Schema for User Form
 const userSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   email: z.string().email("Invalid email address"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
 type UserFormValues = z.infer<typeof userSchema>;
 
 export default function UsersPage() {
-  const { users, createUser, updateUser, deleteUser, restoreUser, isLoading } = useUserStore();
+  const queryClient = useQueryClient();
   const [showDeleted, setShowDeleted] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<number | null>(null);
   const { toast } = useToast();
 
-  // Filter users based on search and soft-delete toggle
+  // Fetch users
+  const { data: users = [], isLoading } = useQuery({
+    queryKey: ['users'],
+    queryFn: userAPI.getUsers,
+  });
+
+  // Create user mutation
+  const createMutation = useMutation({
+    mutationFn: (data: CreateUserRequest) => userAPI.createUser(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast({ title: "User created", description: "A new user has been added to the system." });
+      setIsCreateOpen(false);
+      form.reset();
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Error", 
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
+  // Update user mutation
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: UpdateUserRequest }) => 
+      userAPI.updateUser(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast({ title: "User updated", description: "The user details have been updated." });
+      setIsCreateOpen(false);
+      setEditingUser(null);
+      form.reset();
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Error", 
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
+  // Delete user mutation
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => userAPI.deleteUser(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast({ 
+        title: "User deleted", 
+        description: "User has been soft-deleted.",
+        variant: "destructive"
+      });
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Error", 
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
+  // Filter users based on search (soft-deleted filtering removed since API handles it)
   const filteredUsers = users.filter((user) => {
     const matchesSearch =
       user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       user.email.toLowerCase().includes(searchQuery.toLowerCase());
     
-    // If showDeleted is true, show ALL users (including deleted)
-    // If showDeleted is false, show ONLY active users (deleted_at is null)
-    const matchesDeleteStatus = showDeleted ? true : user.deleted_at === null;
-
-    return matchesSearch && matchesDeleteStatus;
+    return matchesSearch;
   });
 
   const form = useForm<UserFormValues>({
@@ -84,20 +146,24 @@ export default function UsersPage() {
     defaultValues: {
       name: "",
       email: "",
+      password: "",
     },
   });
 
   const onSubmit = (data: UserFormValues) => {
     if (editingUser) {
-      updateUser(editingUser, data);
-      toast({ title: "User updated", description: "The user details have been updated." });
-      setEditingUser(null);
+      // For updates, we don't send password if empty
+      const updateData: UpdateUserRequest = {
+        name: data.name,
+        email: data.email,
+      };
+      if (data.password) {
+        updateData.password = data.password;
+      }
+      updateMutation.mutate({ id: editingUser, data: updateData });
     } else {
-      createUser(data);
-      toast({ title: "User created", description: "A new user has been added to the system." });
+      createMutation.mutate(data);
     }
-    setIsCreateOpen(false);
-    form.reset();
   };
 
   const startEdit = (user: any) => {
@@ -105,26 +171,17 @@ export default function UsersPage() {
     form.reset({
       name: user.name,
       email: user.email,
+      password: "", // Don't populate password
     });
     setIsCreateOpen(true);
   };
 
   const handleDelete = (id: number) => {
-    deleteUser(id);
-    toast({ 
-      title: "User deleted", 
-      description: "User has been soft-deleted.",
-      variant: "destructive"
-    });
+    deleteMutation.mutate(id);
   };
 
-  const handleRestore = (id: number) => {
-    restoreUser(id);
-    toast({ 
-      title: "User restored", 
-      description: "User has been restored to active status."
-    });
-  };
+  const activeUsers = users.filter(u => !u.deleted_at);
+  const deletedUsers = users.filter(u => u.deleted_at);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -135,7 +192,15 @@ export default function UsersPage() {
             Manage your users and view their status.
           </p>
         </div>
-        <Button onClick={() => { setEditingUser(null); form.reset(); setIsCreateOpen(true); }} className="shadow-sm">
+        <Button 
+          onClick={() => { 
+            setEditingUser(null); 
+            form.reset({ name: "", email: "", password: "" }); 
+            setIsCreateOpen(true); 
+          }} 
+          className="shadow-sm"
+          data-testid="button-add-user"
+        >
           <Plus className="mr-2 h-4 w-4" /> Add User
         </Button>
       </div>
@@ -146,7 +211,7 @@ export default function UsersPage() {
                 <CardTitle className="text-sm font-medium text-muted-foreground">Total Users</CardTitle>
             </CardHeader>
             <CardContent>
-                <div className="text-2xl font-bold">{users.length}</div>
+                <div className="text-2xl font-bold" data-testid="text-total-users">{users.length}</div>
             </CardContent>
         </Card>
         <Card>
@@ -154,7 +219,9 @@ export default function UsersPage() {
                 <CardTitle className="text-sm font-medium text-muted-foreground">Active Users</CardTitle>
             </CardHeader>
             <CardContent>
-                <div className="text-2xl font-bold text-green-600">{users.filter(u => !u.deleted_at).length}</div>
+                <div className="text-2xl font-bold text-green-600" data-testid="text-active-users">
+                  {activeUsers.length}
+                </div>
             </CardContent>
         </Card>
         <Card>
@@ -162,7 +229,9 @@ export default function UsersPage() {
                 <CardTitle className="text-sm font-medium text-muted-foreground">Soft Deleted</CardTitle>
             </CardHeader>
             <CardContent>
-                <div className="text-2xl font-bold text-destructive">{users.filter(u => u.deleted_at).length}</div>
+                <div className="text-2xl font-bold text-destructive" data-testid="text-deleted-users">
+                  {deletedUsers.length}
+                </div>
             </CardContent>
         </Card>
       </div>
@@ -176,17 +245,8 @@ export default function UsersPage() {
             className="pl-9 bg-background"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            data-testid="input-search"
           />
-        </div>
-        <div className="flex items-center space-x-2">
-          <Switch
-            id="show-deleted"
-            checked={showDeleted}
-            onCheckedChange={setShowDeleted}
-          />
-          <Label htmlFor="show-deleted" className="cursor-pointer">
-            Show Deleted Users
-          </Label>
         </div>
       </div>
 
@@ -199,12 +259,18 @@ export default function UsersPage() {
               <TableHead>User</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="hidden md:table-cell">Created At</TableHead>
-              <TableHead className="hidden md:table-cell">Deleted At</TableHead>
+              <TableHead className="hidden md:table-cell">Updated At</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredUsers.length === 0 ? (
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                  Loading...
+                </TableCell>
+              </TableRow>
+            ) : filteredUsers.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                   No users found.
@@ -212,86 +278,78 @@ export default function UsersPage() {
               </TableRow>
             ) : (
               filteredUsers.map((user) => (
-                <TableRow key={user.id} className={user.deleted_at ? "bg-muted/30" : ""}>
-                  <TableCell className="font-mono text-xs">{user.id}</TableCell>
+                <TableRow key={user.id} data-testid={`row-user-${user.id}`}>
+                  <TableCell className="font-mono text-xs" data-testid={`text-id-${user.id}`}>
+                    {user.id}
+                  </TableCell>
                   <TableCell>
                     <div className="flex flex-col">
-                      <span className={cn("font-medium", user.deleted_at && "text-muted-foreground line-through decoration-destructive/50")}>
+                      <span className="font-medium" data-testid={`text-name-${user.id}`}>
                         {user.name}
                       </span>
-                      <span className="text-xs text-muted-foreground">{user.email}</span>
+                      <span className="text-xs text-muted-foreground" data-testid={`text-email-${user.id}`}>
+                        {user.email}
+                      </span>
                     </div>
                   </TableCell>
                   <TableCell>
-                    {user.deleted_at ? (
-                      <Badge variant="destructive" className="bg-destructive/10 text-destructive hover:bg-destructive/20 border-destructive/20">
-                        Deleted
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="bg-green-500/10 text-green-700 hover:bg-green-500/20 border-green-200">
-                        Active
-                      </Badge>
-                    )}
+                    <Badge 
+                      variant="outline" 
+                      className="bg-green-500/10 text-green-700 hover:bg-green-500/20 border-green-200"
+                      data-testid={`badge-status-${user.id}`}
+                    >
+                      Active
+                    </Badge>
                   </TableCell>
                   <TableCell className="hidden md:table-cell text-muted-foreground text-sm">
                     {format(new Date(user.created_at), "PP")}
                   </TableCell>
                   <TableCell className="hidden md:table-cell text-muted-foreground text-sm">
-                    {user.deleted_at ? format(new Date(user.deleted_at), "PP p") : "-"}
+                    {format(new Date(user.updated_at), "PP")}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      {user.deleted_at ? (
-                         <Button
-                         variant="outline"
-                         size="sm"
-                         onClick={() => handleRestore(user.id)}
-                         className="h-8 text-green-600 hover:text-green-700 hover:bg-green-50"
-                       >
-                         <RefreshCcw className="h-3.5 w-3.5 mr-1" /> Restore
-                       </Button>
-                      ) : (
-                        <>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        onClick={() => startEdit(user)}
+                        data-testid={`button-edit-${user.id}`}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                            onClick={() => startEdit(user)}
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            data-testid={`button-delete-${user.id}`}
                           >
-                            <Pencil className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4" />
                           </Button>
-                          
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Soft Delete User?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  This will mark the user as deleted. They will not appear in standard lists
-                                  but can be restored later. This simulates setting the <code className="bg-muted px-1 rounded">deleted_at</code> timestamp in the database.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                  onClick={() => handleDelete(user.id)}
-                                >
-                                  Soft Delete
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </>
-                      )}
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Soft Delete User?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will mark the user as deleted. They will not appear in standard lists
+                              but can be restored later. This sets the <code className="bg-muted px-1 rounded">deleted_at</code> timestamp in the database.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              onClick={() => handleDelete(user.id)}
+                              data-testid={`button-confirm-delete-${user.id}`}
+                            >
+                              Soft Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -321,7 +379,11 @@ export default function UsersPage() {
                   <FormItem>
                     <FormLabel>Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="John Doe" {...field} />
+                      <Input 
+                        placeholder="John Doe" 
+                        {...field} 
+                        data-testid="input-name"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -334,15 +396,42 @@ export default function UsersPage() {
                   <FormItem>
                     <FormLabel>Email</FormLabel>
                     <FormControl>
-                      <Input placeholder="john@example.com" type="email" {...field} />
+                      <Input 
+                        placeholder="john@example.com" 
+                        type="email" 
+                        {...field} 
+                        data-testid="input-email"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Password {editingUser && "(leave empty to keep current)"}</FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="••••••••" 
+                        type="password" 
+                        {...field} 
+                        data-testid="input-password"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
               <DialogFooter>
-                <Button type="submit" disabled={isLoading}>
-                  {isLoading ? "Saving..." : "Save User"}
+                <Button 
+                  type="submit" 
+                  disabled={createMutation.isPending || updateMutation.isPending}
+                  data-testid="button-save-user"
+                >
+                  {createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save User"}
                 </Button>
               </DialogFooter>
             </form>
