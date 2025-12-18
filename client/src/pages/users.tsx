@@ -51,14 +51,21 @@ import { Plus, Pencil, Trash2, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-// Schema for User Form
-const userSchema = z.object({
+// Schema for Create User (password required)
+const createUserSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   email: z.string().email("Invalid email address"),
   password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
-type UserFormValues = z.infer<typeof userSchema>;
+// Schema for Update User (password optional)
+const updateUserSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(6, "Password must be at least 6 characters").or(z.literal("")),
+});
+
+type UserFormValues = z.infer<typeof createUserSchema>;
 
 export default function UsersPage() {
   const queryClient = useQueryClient();
@@ -142,7 +149,7 @@ export default function UsersPage() {
   });
 
   const form = useForm<UserFormValues>({
-    resolver: zodResolver(userSchema),
+    resolver: zodResolver(editingUser ? updateUserSchema : createUserSchema),
     defaultValues: {
       name: "",
       email: "",

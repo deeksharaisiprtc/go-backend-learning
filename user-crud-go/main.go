@@ -4,8 +4,8 @@ import (
 	"log"
 	"os"
 
-	"go-backend-learning/database"
-	"go-backend-learning/handlers"
+	"go-backend-learning/config"
+	"go-backend-learning/routes"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -13,7 +13,7 @@ import (
 
 func main() {
 	// Connect to database
-	if err := database.Connect(); err != nil {
+	if err := config.Connect(); err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
@@ -25,21 +25,8 @@ func main() {
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 
-	// Routes
-	api := e.Group("/api")
-	{
-		users := api.Group("/users")
-		users.POST("", handlers.CreateUser)
-		users.GET("", handlers.GetUsers)
-		users.GET("/:id", handlers.GetUserByID)
-		users.PUT("/:id", handlers.UpdateUser)
-		users.DELETE("/:id", handlers.DeleteUser)
-	}
-
-	// Health check endpoint
-	e.GET("/health", func(c echo.Context) error {
-		return c.JSON(200, map[string]string{"status": "ok"})
-	})
+	// Register routes
+	routes.RegisterRoutes(e)
 
 	// Start server
 	port := os.Getenv("PORT")

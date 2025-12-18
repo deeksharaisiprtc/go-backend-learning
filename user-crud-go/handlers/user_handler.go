@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"go-backend-learning/database"
+	"go-backend-learning/config"
 	"go-backend-learning/models"
 
 	"github.com/go-playground/validator/v10"
@@ -33,7 +33,7 @@ func CreateUser(c echo.Context) error {
 		Password: req.Password, // In production, hash the password!
 	}
 
-	if err := database.DB.Create(&user).Error; err != nil {
+	if err := config.DB.Create(&user).Error; err != nil {
 		// Check for unique constraint violation
 		if err.Error() == "duplicated key not allowed" || contains(err.Error(), "duplicate key") {
 			return c.JSON(http.StatusConflict, map[string]string{"error": "Email already exists"})
@@ -49,7 +49,7 @@ func GetUsers(c echo.Context) error {
 	var users []models.User
 
 	// GORM automatically excludes soft-deleted records
-	if err := database.DB.Find(&users).Error; err != nil {
+	if err := config.DB.Find(&users).Error; err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch users"})
 	}
 
@@ -71,7 +71,7 @@ func GetUserByID(c echo.Context) error {
 
 	var user models.User
 	// GORM automatically excludes soft-deleted records
-	if err := database.DB.First(&user, id).Error; err != nil {
+	if err := config.DB.First(&user, id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "User not found"})
 		}
@@ -100,7 +100,7 @@ func UpdateUser(c echo.Context) error {
 
 	// Check if user exists and is not soft-deleted
 	var user models.User
-	if err := database.DB.First(&user, id).Error; err != nil {
+	if err := config.DB.First(&user, id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "User not found or has been deleted"})
 		}
@@ -119,7 +119,7 @@ func UpdateUser(c echo.Context) error {
 		updates["password"] = *req.Password // In production, hash the password!
 	}
 
-	if err := database.DB.Model(&user).Updates(updates).Error; err != nil {
+	if err := config.DB.Model(&user).Updates(updates).Error; err != nil {
 		if contains(err.Error(), "duplicate key") {
 			return c.JSON(http.StatusConflict, map[string]string{"error": "Email already exists"})
 		}
@@ -127,7 +127,7 @@ func UpdateUser(c echo.Context) error {
 	}
 
 	// Fetch updated user
-	database.DB.First(&user, id)
+	config.DB.First(&user, id)
 
 	return c.JSON(http.StatusOK, user.ToResponse())
 }
@@ -141,7 +141,7 @@ func DeleteUser(c echo.Context) error {
 
 	// Check if user exists and is not already soft-deleted
 	var user models.User
-	if err := database.DB.First(&user, id).Error; err != nil {
+	if err := config.DB.First(&user, id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "User not found"})
 		}
@@ -149,7 +149,7 @@ func DeleteUser(c echo.Context) error {
 	}
 
 	// Soft delete the user (GORM sets deleted_at automatically)
-	if err := database.DB.Delete(&user).Error; err != nil {
+	if err := config.DB.Delete(&user).Error; err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to delete user"})
 	}
 
