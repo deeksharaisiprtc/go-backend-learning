@@ -1,6 +1,9 @@
-node_modules
-dist
-.DS_Store
-server/public
-vite.config.ts.*
-*.tar.gz
+# Ignore frontend
+client/
+server/
+
+# Ignore local/system files
+.config/
+.local/
+.env
+node_modules/
