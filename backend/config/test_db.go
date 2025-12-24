@@ -1,7 +1,9 @@
 package config
 
 import (
+	"fmt"
 	"log"
+	"os"
 
 	"go-backend-learning/models"
 
@@ -11,7 +13,14 @@ import (
 
 // InitTestDB initializes database connection for tests
 func InitTestDB() {
-	dsn := "host=localhost user=postgres password=postgres dbname=user_management port=5432 sslmode=disable"
+	dsn := fmt.Sprintf(
+		"host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
+		os.Getenv("TEST_DB_HOST"),
+		os.Getenv("TEST_DB_USER"),
+		os.Getenv("TEST_DB_PASSWORD"),
+		os.Getenv("TEST_DB_NAME"),
+		os.Getenv("TEST_DB_PORT"),
+	)
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -21,8 +30,7 @@ func InitTestDB() {
 	DB = db
 
 	// Auto-create tables needed for tests
-	err = db.AutoMigrate(&models.User{})
-	if err != nil {
+	if err := db.AutoMigrate(&models.User{}); err != nil {
 		log.Fatal("❌ Failed to migrate test database:", err)
 	}
 }
