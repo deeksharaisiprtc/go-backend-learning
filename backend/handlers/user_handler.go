@@ -1,17 +1,17 @@
 package handlers
 
-import  (
-	 "net/http"
-     "strconv"
-     "strings"
+import (
+	"net/http"
+	"strconv"
+	"strings"
 
-    "go-backend-learning/config"
-    "go-backend-learning/models"
+	"go-backend-learning/config"
+	"go-backend-learning/models"
 
-    "github.com/go-playground/validator/v10"
-    "github.com/labstack/echo/v4"
-    "golang.org/x/crypto/bcrypt"
-    "gorm.io/gorm"
+	"github.com/go-playground/validator/v10"
+	"github.com/labstack/echo/v4"
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 var validate = validator.New()
@@ -23,32 +23,42 @@ func CreateUser(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
 	}
 
+	// ... existing code ...
 	// Validate request
 	if err := validate.Struct(req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
-	// Create user
-	 // Create user
-    user := models.User{
-        Name:     req.Name,
-        Email:    req.Email,
-        Password: req.Password,
-    }
-    
-    // Hash the password
-    if err := user.HashPassword(); err != nil {
-        return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to hash password"})
-    }
+	// Check if user with this email already exists (excluding soft-deleted users)
+	var existingUser models.User
+	result := config.DB.Unscoped().Where("email = ? AND deleted_at IS NULL", req.Email).First(&existingUser)
+	if result.Error == nil {
+		return c.JSON(http.StatusConflict, map[string]string{"error": "Email already exists"})
+	}
 
-    if err := config.DB.Create(&user).Error; err != nil {
-        // Check for unique constraint violation
-        if strings.Contains(err.Error(), "duplicate key value violates unique constraint") ||
-            strings.Contains(err.Error(), "UNIQUE constraint failed") {
-            return c.JSON(http.StatusConflict, map[string]string{"error": "Email already exists"})
-        }
-        return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create user", "details": err.Error()})
-    }
+	// Create user
+	user := models.User{
+		Name:     req.Name,
+		Email:    req.Email,
+		Password: req.Password,
+	}
+
+	// Hash the password
+	if err := user.HashPassword(); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to hash password"})
+	}
+
+	if err := config.DB.Create(&user).Error; err != nil {
+		// Check for unique constraint violation
+		if strings.Contains(err.Error(), "duplicate key value violates unique constraint") ||
+			strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return c.JSON(http.StatusConflict, map[string]string{"error": "Email already exists"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create user", "details": err.Error()})
+	}
+
+	return c.JSON(http.StatusCreated, user.ToResponse())
+}
 
 // GetUsers handles GET /users - Get all active users (exclude soft-deleted)
 func GetUsers(c echo.Context) error {
@@ -104,30 +114,47 @@ func UpdateUser(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
-	// Check if user exists and is not soft-deleted
-	var user models.User
-	if err := config.DB.First(&user, id).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return c.JSON(http.StatusNotFound, map[string]string{"error": "User not found or has been deleted"})
-		}
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch user"})
-	}
+	/ ... existing code ...
+    // Check if user exists and is not soft-deleted
+    var user models.User
+    if err := config.DB.First(&user, id).Error; err != nil {
+        if err == gorm.ErrRecordNotFound {
+            return c.JSON(http.StatusNotFound, map[string]string{"error": "User not found or has been deleted"})
+        }
+        return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch user"})
+    }
+
+    // If email is being updated, check if another active user already has this email
+    if req.Email != nil {
+        var existingUser models.User
+        result := config.DB.Unscoped().Where("email = ? AND id != ? AND deleted_at IS NULL", *req.Email, id).First(&existingUser)
+        if result.Error == nil {
+            return c.JSON(http.StatusConflict, map[string]string{"error": "Email already exists"})
+        }
+    }
 
 	// Update only provided fields
-    updates := make(map[string]interface{})
-    if req.Name != nil {
-        updates["name"] = *req.Name
-    }
-    if req.Email != nil {
-        updates["email"] = *req.Email
-    }
-    if req.Password != nil {
-        // Hash the new password
-        hashedPassword, err := bcrypt.GenerateFromPassword([]byte(*req.Password), bcrypt.DefaultCost)
-        if err != nil {
-            return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to hash password"})
+	updates := make(map[string]interface{})
+	if req.Name != nil {
+		updates["name"] = *req.Name
+	}
+	if req.Email != nil {
+		updates["email"] = *req.Email
+	}
+	if req.Password != nil {
+		// Hash the new password
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(*req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to hash password"})
+		}
+		updates["password"] = string(hashedPassword)
+	}
+	   if err := config.DB.Model(&user).Updates(updates).Error; err != nil {
+        if strings.Contains(err.Error(), "duplicate key value violates unique constraint") ||
+            strings.Contains(err.Error(), "UNIQUE constraint failed") {
+            return c.JSON(http.StatusConflict, map[string]string{"error": "Email already exists"})
         }
-        updates["password"] = string(hashedPassword)
+        return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to update user", "details": err.Error()})
     }
 
 	// Fetch updated user
@@ -162,7 +189,7 @@ func DeleteUser(c echo.Context) error {
 
 // Helper function to check if string contains substring
 func contains(s, substr string) bool {
-    return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 func containsHelper(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
