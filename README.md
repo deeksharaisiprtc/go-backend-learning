@@ -117,3 +117,19 @@ GET	/api/users	Get all active users
 GET	/api/users/:id	Get user by ID
 PUT	/api/users/:id	Update user
 DELETE	/api/users/:id	Soft delete user
+🧪 API Testing with Postman
+
+A Postman collection is provided to make it easy to test and verify all User
+CRUD API endpoints.
+
+📂 Location of Postman Collection:
+backend/postman/user-crud-api.postman_collection.json
+
+🔹 How to use:
+1. Open Postman
+2. Click on **Import**
+3. Import the file:
+   `backend/postman/user-crud-api.postman_collection.json`
+4. Set the base URL (for example):
+   http://localhost:8080
+5. Test the available API endpoints
