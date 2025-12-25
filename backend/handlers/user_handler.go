@@ -1,15 +1,17 @@
 package handlers
 
-import (
-	"net/http"
-	"strconv"
+import  (
+	 "net/http"
+     "strconv"
+     "strings"
 
-	"go-backend-learning/config"
-	"go-backend-learning/models"
+    "go-backend-learning/config"
+    "go-backend-learning/models"
 
-	"github.com/go-playground/validator/v10"
-	"github.com/labstack/echo/v4"
-	"gorm.io/gorm"
+    "github.com/go-playground/validator/v10"
+    "github.com/labstack/echo/v4"
+    "golang.org/x/crypto/bcrypt"
+    "gorm.io/gorm"
 )
 
 var validate = validator.New()
@@ -27,22 +29,26 @@ func CreateUser(c echo.Context) error {
 	}
 
 	// Create user
-	user := models.User{
-		Name:     req.Name,
-		Email:    req.Email,
-		Password: req.Password, // In production, hash the password!
-	}
+	 // Create user
+    user := models.User{
+        Name:     req.Name,
+        Email:    req.Email,
+        Password: req.Password,
+    }
+    
+    // Hash the password
+    if err := user.HashPassword(); err != nil {
+        return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to hash password"})
+    }
 
-	if err := config.DB.Create(&user).Error; err != nil {
-		// Check for unique constraint violation
-		if err.Error() == "duplicated key not allowed" || contains(err.Error(), "duplicate key") {
-			return c.JSON(http.StatusConflict, map[string]string{"error": "Email already exists"})
-		}
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create user"})
-	}
-
-	return c.JSON(http.StatusCreated, user.ToResponse())
-}
+    if err := config.DB.Create(&user).Error; err != nil {
+        // Check for unique constraint violation
+        if strings.Contains(err.Error(), "duplicate key value violates unique constraint") ||
+            strings.Contains(err.Error(), "UNIQUE constraint failed") {
+            return c.JSON(http.StatusConflict, map[string]string{"error": "Email already exists"})
+        }
+        return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create user", "details": err.Error()})
+    }
 
 // GetUsers handles GET /users - Get all active users (exclude soft-deleted)
 func GetUsers(c echo.Context) error {
@@ -108,23 +114,21 @@ func UpdateUser(c echo.Context) error {
 	}
 
 	// Update only provided fields
-	updates := make(map[string]interface{})
-	if req.Name != nil {
-		updates["name"] = *req.Name
-	}
-	if req.Email != nil {
-		updates["email"] = *req.Email
-	}
-	if req.Password != nil {
-		updates["password"] = *req.Password // In production, hash the password!
-	}
-
-	if err := config.DB.Model(&user).Updates(updates).Error; err != nil {
-		if contains(err.Error(), "duplicate key") {
-			return c.JSON(http.StatusConflict, map[string]string{"error": "Email already exists"})
-		}
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to update user"})
-	}
+    updates := make(map[string]interface{})
+    if req.Name != nil {
+        updates["name"] = *req.Name
+    }
+    if req.Email != nil {
+        updates["email"] = *req.Email
+    }
+    if req.Password != nil {
+        // Hash the new password
+        hashedPassword, err := bcrypt.GenerateFromPassword([]byte(*req.Password), bcrypt.DefaultCost)
+        if err != nil {
+            return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to hash password"})
+        }
+        updates["password"] = string(hashedPassword)
+    }
 
 	// Fetch updated user
 	config.DB.First(&user, id)
@@ -158,9 +162,8 @@ func DeleteUser(c echo.Context) error {
 
 // Helper function to check if string contains substring
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsHelper(s, substr)))
+    return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
-
 func containsHelper(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
