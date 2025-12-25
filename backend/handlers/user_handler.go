@@ -22,8 +22,6 @@ func CreateUser(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
 	}
-
-	// ... existing code ...
 	// Validate request
 	if err := validate.Struct(req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -113,25 +111,23 @@ func UpdateUser(c echo.Context) error {
 	if err := validate.Struct(req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
+	// Check if user exists and is not soft-deleted
+	var user models.User
+	if err := config.DB.First(&user, id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "User not found or has been deleted"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch user"})
+	}
 
-	/ ... existing code ...
-    // Check if user exists and is not soft-deleted
-    var user models.User
-    if err := config.DB.First(&user, id).Error; err != nil {
-        if err == gorm.ErrRecordNotFound {
-            return c.JSON(http.StatusNotFound, map[string]string{"error": "User not found or has been deleted"})
-        }
-        return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch user"})
-    }
-
-    // If email is being updated, check if another active user already has this email
-    if req.Email != nil {
-        var existingUser models.User
-        result := config.DB.Unscoped().Where("email = ? AND id != ? AND deleted_at IS NULL", *req.Email, id).First(&existingUser)
-        if result.Error == nil {
-            return c.JSON(http.StatusConflict, map[string]string{"error": "Email already exists"})
-        }
-    }
+	// If email is being updated, check if another active user already has this email
+	if req.Email != nil {
+		var existingUser models.User
+		result := config.DB.Unscoped().Where("email = ? AND id != ? AND deleted_at IS NULL", *req.Email, id).First(&existingUser)
+		if result.Error == nil {
+			return c.JSON(http.StatusConflict, map[string]string{"error": "Email already exists"})
+		}
+	}
 
 	// Update only provided fields
 	updates := make(map[string]interface{})
@@ -149,13 +145,13 @@ func UpdateUser(c echo.Context) error {
 		}
 		updates["password"] = string(hashedPassword)
 	}
-	   if err := config.DB.Model(&user).Updates(updates).Error; err != nil {
-        if strings.Contains(err.Error(), "duplicate key value violates unique constraint") ||
-            strings.Contains(err.Error(), "UNIQUE constraint failed") {
-            return c.JSON(http.StatusConflict, map[string]string{"error": "Email already exists"})
-        }
-        return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to update user", "details": err.Error()})
-    }
+	if err := config.DB.Model(&user).Updates(updates).Error; err != nil {
+		if strings.Contains(err.Error(), "duplicate key value violates unique constraint") ||
+			strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return c.JSON(http.StatusConflict, map[string]string{"error": "Email already exists"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to update user", "details": err.Error()})
+	}
 
 	// Fetch updated user
 	config.DB.First(&user, id)
