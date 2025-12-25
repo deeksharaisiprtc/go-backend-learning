@@ -1,0 +1,9 @@
+# Ignore frontend
+client/
+server/
+
+# Ignore local/system files
+.config/
+.local/
+.env
+node_modules/
