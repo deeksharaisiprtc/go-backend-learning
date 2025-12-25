@@ -35,19 +35,29 @@ Validation: go-playground/validator
 Testing: Go testing package + testify
 
 📁 Project Structure
-go-backend/
-├── models/
-│   └── user.go            # User model (GORM)
-├── handlers/
-│   └── user.go            # API route handlers
-├── database/
-│   └── database.go        # Database connection & migration
-├── tests/
-│   └── user_test.go       # Unit tests
-├── main.go                # Application entry point
-├── go.mod                 # Go dependencies
+
+.
+├── backend/
+│   ├── config/
+│   │   └── database.go             # Database connection & migration
+│   ├── handlers/
+│   │   └── user_handler.go         # API route handlers
+│   ├── models/
+│   │   └── user.go                 # User model (GORM)
+│   ├── routes/
+│   │   └── routes.go               # API routes
+│   ├── tests/
+│   │   └── user_test.go            # Unit tests
+│   └── main.go                     # Application entry point
+│
+├── postman/
+│   └── user-crud-api.postman_collection.json  # Postman collection for API testing
+│
+├── .env                            # Environment variables (not committed)
+├── go.mod                          # Go dependencies
 ├── go.sum
-└── .env                   # Environment variables (not committed)
+├── README.md
+
 
 🚀 Getting Started
 Prerequisites (Windows 11)
@@ -129,7 +139,7 @@ backend/postman/user-crud-api.postman_collection.json
 1. Open Postman
 2. Click on **Import**
 3. Import the file:
-   `backend/postman/user-crud-api.postman_collection.json`
+   postman/user-crud-api.postman_collection.json
 4. Set the base URL (for example):
    http://localhost:8080
 5. Test the available API endpoints
